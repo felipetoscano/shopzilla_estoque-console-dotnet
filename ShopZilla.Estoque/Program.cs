@@ -28,6 +28,7 @@ namespace ShopZilla.Estoque
             services.AddDbContext<EstoqueDbContext>(options => options.UseSqlServer(config.GetConnectionString("EstoqueDb")));
             services.AddScoped<EstoqueDal>();
             services.AddSingleton(config.GetSection(nameof(ConnectionStrings)).Get<ConnectionStrings>());
+            services.AddSingleton(config.GetSection(nameof(KafkaSettings)).Get<KafkaSettings>());
             services.AddSingleton<KafkaConsumerService>();
             services.AddSingleton<KafkaProducerService>();
         }

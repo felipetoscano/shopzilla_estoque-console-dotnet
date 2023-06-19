@@ -11,40 +11,26 @@ namespace ShopZilla.Estoque.Services
     {
         private readonly KafkaProducerService _kafkaProducer;
         private readonly ConnectionStrings _connectionStrings;
+        private readonly KafkaSettings _kafkaSettings;
         private readonly IServiceProvider _serviceProvider;
 
-        public KafkaConsumerService(KafkaProducerService kafkaProducer, ConnectionStrings connectionStrings, IServiceProvider serviceProvider)
+        public KafkaConsumerService(KafkaProducerService kafkaProducer, ConnectionStrings connectionStrings, KafkaSettings kafkaSettings, IServiceProvider serviceProvider)
         {
             _kafkaProducer = kafkaProducer;
             _connectionStrings = connectionStrings;
+            _kafkaSettings = kafkaSettings;
             _serviceProvider = serviceProvider;
         }
 
         public void ConsumirNovosPedidos(CancellationToken cancellationToken)
         {
-            var config = new ConsumerConfig
-            {
-                BootstrapServers = _connectionStrings.Kafka,
-                GroupId = "ESTOQUE"
-            };
-
-            var consumidor = new ConsumerBuilder<Ignore, string>(config).Build();
-            consumidor.Subscribe("NOVO_PEDIDO");
+            var config = ObterConfiguracaoConsumidor();
+            var consumidor = ObterConsumidorTopicoNovoPedido(config);
 
             try
             {
                 Console.WriteLine("Consumo iniciado");
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    var mensagem = consumidor.Consume(cancellationToken);
-                    var pedido = JsonSerializer.Deserialize<PedidoEntity>(mensagem.Message.Value);
-
-                    var pedidoProcessado = ProcessarPedido(pedido);
-
-                    _kafkaProducer.ConfirmarPedido(pedidoProcessado);
-
-                    Console.WriteLine("Registro da fila consumido com sucesso");
-                }
+                IniciarConsumoTopico(consumidor, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -52,29 +38,41 @@ namespace ShopZilla.Estoque.Services
             }
         }
 
-        private PedidoEntity ProcessarPedido(PedidoEntity pedido)
+        private ConsumerConfig ObterConfiguracaoConsumidor()
         {
-            using var scope = _serviceProvider.CreateScope();
-            var estoqueDal = scope.ServiceProvider.GetRequiredService<EstoqueDal>();
-
-            foreach (var produto in pedido.Produtos)
+            return new ConsumerConfig
             {
-                var estoque = estoqueDal.BuscarEstoquePorSku(produto.Sku);
+                BootstrapServers = _connectionStrings.Kafka,
+                GroupId = _kafkaSettings.GroupId
+            };
+        }
 
-                if (estoque is null || estoque.Quantidade < produto.Quantidade)
+        private IConsumer<Ignore, string> ObterConsumidorTopicoNovoPedido(ConsumerConfig config)
+        {
+            var consumidor = new ConsumerBuilder<Ignore, string>(config).Build();
+            consumidor.Subscribe(_kafkaSettings.Topics.NovoPedido);
+
+            return consumidor;
+        }
+
+        private void IniciarConsumoTopico(IConsumer<Ignore, string> consumidor, CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var mensagem = consumidor.Consume(cancellationToken);
+                var pedido = JsonSerializer.Deserialize<PedidoEntity>(mensagem.Message.Value);
+
+                PedidoEntity pedidoProcessado;
+                using (var scope = _serviceProvider.CreateScope())
                 {
-                    pedido.RecusarPedido();
-                    return pedido;
+                    var estoqueDal = scope.ServiceProvider.GetRequiredService<EstoqueDal>();
+                    pedidoProcessado = new ProcessadorPedidos(estoqueDal).Processar(pedido);
                 }
 
-                estoque.SubtrairQuantidadeComprada(produto.Quantidade);
+                _kafkaProducer.AdicionarTopicoConfirmacaoPedido(pedidoProcessado);
 
-                estoqueDal.AlterarEstoque(estoque);
-                estoqueDal.SalvarAlteracoes();
+                Console.WriteLine("Registro da fila consumido com sucesso");
             }
-
-            pedido.AprovarPedido();
-            return pedido;
         }
     }
 }

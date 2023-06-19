@@ -2,7 +2,7 @@
 {
     public class ConnectionStrings
     {
-        public string EstoqueDb { get; set; }
-        public string Kafka { get; set; }
+        public string EstoqueDb { get; init; }
+        public string Kafka { get; init; }
     }
 }
