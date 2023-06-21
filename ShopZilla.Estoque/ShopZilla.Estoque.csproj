@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
 	  <ContainerImageName>shopzilla-estoque</ContainerImageName>
 	  <ContainerImageTags>latest</ContainerImageTags>
-	  <ContainerRuntimeIdentifier>linux-x64</ContainerRuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
