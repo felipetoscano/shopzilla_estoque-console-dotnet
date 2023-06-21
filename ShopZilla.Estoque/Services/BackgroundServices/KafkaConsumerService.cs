@@ -1,13 +1,12 @@
 ﻿using Confluent.Kafka;
-using Microsoft.Extensions.DependencyInjection;
 using ShopZilla.Estoque.Dal;
 using ShopZilla.Estoque.Entities;
 using ShopZilla.Estoque.Models;
 using System.Text.Json;
 
-namespace ShopZilla.Estoque.Services
+namespace ShopZilla.Estoque.Services.BackgroundServices
 {
-    public class KafkaConsumerService
+    public class KafkaConsumerService : BackgroundService
     {
         private readonly KafkaProducerService _kafkaProducer;
         private readonly ConnectionStrings _connectionStrings;
@@ -22,7 +21,7 @@ namespace ShopZilla.Estoque.Services
             _serviceProvider = serviceProvider;
         }
 
-        public void ConsumirNovosPedidos(CancellationToken cancellationToken)
+        protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
             var config = ObterConfiguracaoConsumidor();
             var consumidor = ObterConsumidorTopicoNovoPedido(config);
@@ -30,11 +29,14 @@ namespace ShopZilla.Estoque.Services
             try
             {
                 Console.WriteLine("Consumo iniciado");
-                IniciarConsumoTopico(consumidor, cancellationToken);
+
+                return ObterTarefaConsumoTopicoNovoPedido(consumidor, stoppingToken);
             }
             catch (OperationCanceledException)
             {
                 consumidor.Close();
+
+                throw;
             }
         }
 
@@ -55,24 +57,27 @@ namespace ShopZilla.Estoque.Services
             return consumidor;
         }
 
-        private void IniciarConsumoTopico(IConsumer<Ignore, string> consumidor, CancellationToken cancellationToken)
+        private Task ObterTarefaConsumoTopicoNovoPedido(IConsumer<Ignore, string> consumidor, CancellationToken stoppingToken)
         {
-            while (!cancellationToken.IsCancellationRequested)
+            return Task.Run(() =>
             {
-                var mensagem = consumidor.Consume(cancellationToken);
-                var pedido = JsonSerializer.Deserialize<PedidoEntity>(mensagem.Message.Value);
-
-                PedidoEntity pedidoProcessado;
-                using (var scope = _serviceProvider.CreateScope())
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    var estoqueDal = scope.ServiceProvider.GetRequiredService<EstoqueDal>();
-                    pedidoProcessado = new ProcessadorPedidos(estoqueDal).Processar(pedido);
+                    var mensagem = consumidor.Consume(stoppingToken);
+                    var pedido = JsonSerializer.Deserialize<PedidoEntity>(mensagem.Message.Value);
+
+                    PedidoEntity pedidoProcessado;
+                    using (var scope = _serviceProvider.CreateScope())
+                    {
+                        var estoqueDal = scope.ServiceProvider.GetRequiredService<EstoqueDal>();
+                        pedidoProcessado = new ProcessadorPedidos(estoqueDal).Processar(pedido);
+                    }
+
+                    _kafkaProducer.AdicionarTopicoConfirmacaoPedido(pedidoProcessado);
+
+                    Console.WriteLine("Registro da fila consumido com sucesso");
                 }
-
-                _kafkaProducer.AdicionarTopicoConfirmacaoPedido(pedidoProcessado);
-
-                Console.WriteLine("Registro da fila consumido com sucesso");
-            }
+            }, CancellationToken.None);
         }
     }
 }

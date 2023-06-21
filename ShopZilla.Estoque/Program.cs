@@ -1,36 +1,23 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
+using ShopZilla.Estoque;
 using ShopZilla.Estoque.Dal;
 using ShopZilla.Estoque.Models;
 using ShopZilla.Estoque.Services;
+using ShopZilla.Estoque.Services.BackgroundServices;
 
-namespace ShopZilla.Estoque
-{
-    public class Program
+Host.CreateDefaultBuilder(args)
+    .ConfigureServices((hostContext, services) =>
     {
-        public static void Main(string[] args)
-        {
-            var configurationBuilder = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile("appsettings.json", optional: false);
-            var configuration = configurationBuilder.Build();
+        var configuration = hostContext.Configuration;
 
-            var serviceCollection = new ServiceCollection();
-            ConfigureServices(serviceCollection, configuration);
-            var serviceProvider = serviceCollection.BuildServiceProvider();
+        services.AddDbContext<EstoqueDbContext>(options => options.UseSqlServer(configuration.GetConnectionString("EstoqueDb")));
 
-            var kafkaConsumer = serviceProvider.GetRequiredService<KafkaConsumerService>();
-            var cts = new CancellationTokenSource();
-            kafkaConsumer.ConsumirNovosPedidos(cts.Token);
-        }
+        services.AddSingleton(configuration.GetSection(nameof(ConnectionStrings)).Get<ConnectionStrings>());
+        services.AddSingleton(configuration.GetSection(nameof(KafkaSettings)).Get<KafkaSettings>());
+        services.AddSingleton<KafkaProducerService>();
 
-        private static void ConfigureServices(IServiceCollection services, IConfigurationRoot config)
-        {
-            services.AddDbContext<EstoqueDbContext>(options => options.UseSqlServer(config.GetConnectionString("EstoqueDb")));
-            services.AddScoped<EstoqueDal>();
-            services.AddSingleton(config.GetSection(nameof(ConnectionStrings)).Get<ConnectionStrings>());
-            services.AddSingleton(config.GetSection(nameof(KafkaSettings)).Get<KafkaSettings>());
-            services.AddSingleton<KafkaConsumerService>();
-            services.AddSingleton<KafkaProducerService>();
-        }
-    }
-}
+        services.AddScoped<EstoqueDal>();
+
+        services.AddHostedService<KafkaConsumerService>();
+    })
+.Build().Run();
