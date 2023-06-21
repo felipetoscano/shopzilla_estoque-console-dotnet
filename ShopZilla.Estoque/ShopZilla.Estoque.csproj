@@ -4,7 +4,9 @@
     <TargetFramework>net7.0</TargetFramework>
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>dotnet-ShopZilla.Estoque-914e17f6-90c2-4e43-bdb5-f76cd4313ed5</UserSecretsId>
+	  <ContainerImageName>shopzilla-estoque</ContainerImageName>
+	  <ContainerImageTags>latest</ContainerImageTags>
+	  <ContainerRuntimeIdentifier>linux-x64</ContainerRuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
